@@ -16,6 +16,7 @@ package anthropic
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -33,9 +34,8 @@ const (
 // If set to "1" or "true" (case-insensitive), it returns VariantVertexAI.
 // Otherwise, it returns VariantAnthropicAPI.
 func GetVariant() string {
-	v := os.Getenv("ANTHROPIC_USE_VERTEX")
-	v = strings.ToLower(strings.TrimSpace(v))
-	if v == "1" || v == "true" {
+	b, _ := strconv.ParseBool(strings.TrimSpace(os.Getenv("ANTHROPIC_USE_VERTEX")))
+	if b {
 		return VariantVertexAI
 	}
 	return VariantAnthropicAPI

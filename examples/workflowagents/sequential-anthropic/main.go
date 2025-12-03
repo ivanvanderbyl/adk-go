@@ -45,7 +45,7 @@ func main() {
 	ctx := context.Background()
 
 	// Create the Anthropic model
-	model, err := anthropic.NewModel(ctx, anthropicsdk.ModelClaudeSonnet4_20250514, nil)
+	model, err := anthropic.NewModel(ctx, anthropicsdk.Model("claude-opus-4-5@20251101"), nil)
 	if err != nil {
 		log.Fatalf("Failed to create model: %v", err)
 	}
