@@ -17,6 +17,7 @@ package converters_test
 import (
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/genai"
 
@@ -721,5 +722,121 @@ func TestSchemaToMap_AnyOf(t *testing.T) {
 	}
 	if len(anyOf) != 2 {
 		t.Errorf("expected 2 anyOf entries, got %d", len(anyOf))
+	}
+}
+
+func TestMessageToLLMResponse_WithCitations(t *testing.T) {
+	// Test requires JSON unmarshaling to properly construct the ContentBlockUnion.
+	// The SDK's AsAny() method relies on the Type field being set during unmarshaling.
+	msgJSON := `{
+		"content": [{
+			"type": "text",
+			"text": "According to the documentation...",
+			"citations": [
+				{
+					"type": "char_location",
+					"document_title": "API Reference",
+					"start_char_index": 0,
+					"end_char_index": 50,
+					"cited_text": "some text"
+				},
+				{
+					"type": "web_search_result_location",
+					"title": "Official Docs",
+					"url": "https://example.com/docs",
+					"cited_text": "other text"
+				}
+			]
+		}],
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 10, "output_tokens": 20}
+	}`
+
+	var msg anthropic.Message
+	if err := msg.UnmarshalJSON([]byte(msgJSON)); err != nil {
+		t.Fatalf("failed to unmarshal message: %v", err)
+	}
+
+	resp := converters.MessageToLLMResponse(&msg)
+
+	if resp.CitationMetadata == nil {
+		t.Fatal("expected CitationMetadata to be set")
+	}
+	if len(resp.CitationMetadata.Citations) != 2 {
+		t.Fatalf("expected 2 citations, got %d", len(resp.CitationMetadata.Citations))
+	}
+
+	c0 := resp.CitationMetadata.Citations[0]
+	if c0.Title != "API Reference" {
+		t.Errorf("citation[0].Title = %q, want 'API Reference'", c0.Title)
+	}
+	if c0.StartIndex != 0 || c0.EndIndex != 50 {
+		t.Errorf("citation[0] indices = (%d, %d), want (0, 50)", c0.StartIndex, c0.EndIndex)
+	}
+
+	c1 := resp.CitationMetadata.Citations[1]
+	if c1.Title != "Official Docs" {
+		t.Errorf("citation[1].Title = %q, want 'Official Docs'", c1.Title)
+	}
+	if c1.URI != "https://example.com/docs" {
+		t.Errorf("citation[1].URI = %q, want 'https://example.com/docs'", c1.URI)
+	}
+}
+
+func TestContentBlockToGenaiPart_WebSearchToolResult(t *testing.T) {
+	// Test requires JSON unmarshaling to properly construct the ContentBlockUnion.
+	blockJSON := `{
+		"type": "web_search_tool_result",
+		"tool_use_id": "toolu_search_123",
+		"content": [
+			{
+				"type": "web_search_result",
+				"title": "Example Page",
+				"url": "https://example.com",
+				"page_age": "2 days ago",
+				"encrypted_content": "abc123"
+			},
+			{
+				"type": "web_search_result",
+				"title": "Another Page",
+				"url": "https://another.com",
+				"page_age": "1 week ago",
+				"encrypted_content": "def456"
+			}
+		]
+	}`
+
+	var block anthropic.ContentBlockUnion
+	if err := block.UnmarshalJSON([]byte(blockJSON)); err != nil {
+		t.Fatalf("failed to unmarshal block: %v", err)
+	}
+
+	part := converters.ContentBlockToGenaiPart(block)
+
+	if part == nil {
+		t.Fatal("expected part to be non-nil")
+	}
+	if part.FunctionResponse == nil {
+		t.Fatal("expected FunctionResponse to be set")
+	}
+	if part.FunctionResponse.ID != "toolu_search_123" {
+		t.Errorf("FunctionResponse.ID = %q, want 'toolu_search_123'", part.FunctionResponse.ID)
+	}
+	if part.FunctionResponse.Name != "web_search" {
+		t.Errorf("FunctionResponse.Name = %q, want 'web_search'", part.FunctionResponse.Name)
+	}
+
+	results, ok := part.FunctionResponse.Response["results"].([]map[string]any)
+	if !ok {
+		t.Fatalf("expected results to be []map[string]any, got %T", part.FunctionResponse.Response["results"])
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0]["title"] != "Example Page" {
+		t.Errorf("results[0].title = %q, want 'Example Page'", results[0]["title"])
+	}
+	if results[0]["url"] != "https://example.com" {
+		t.Errorf("results[0].url = %q, want 'https://example.com'", results[0]["url"])
 	}
 }

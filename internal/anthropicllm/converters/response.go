@@ -38,18 +38,31 @@ func MessageToLLMResponse(msg *anthropic.Message) *model.LLMResponse {
 		Parts: make([]*genai.Part, 0, len(msg.Content)),
 	}
 
+	var allCitations []*genai.Citation
 	for _, block := range msg.Content {
 		part := ContentBlockToGenaiPart(block)
 		if part != nil {
 			content.Parts = append(content.Parts, part)
 		}
+		// Collect citations from text blocks
+		if textBlock, ok := block.AsAny().(anthropic.TextBlock); ok {
+			if citations := textCitationsToSlice(textBlock.Citations); len(citations) > 0 {
+				allCitations = append(allCitations, citations...)
+			}
+		}
 	}
 
-	return &model.LLMResponse{
+	resp := &model.LLMResponse{
 		Content:       content,
 		UsageMetadata: UsageToMetadata(msg.Usage),
 		FinishReason:  StopReasonToFinishReason(msg.StopReason),
 	}
+
+	if len(allCitations) > 0 {
+		resp.CitationMetadata = &genai.CitationMetadata{Citations: allCitations}
+	}
+
+	return resp
 }
 
 // ContentBlockToGenaiPart converts an Anthropic ContentBlockUnion to a genai.Part.
@@ -106,10 +119,72 @@ func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) *genai.Part {
 			},
 		}
 
+	case anthropic.WebSearchToolResultBlock:
+		// Web search results from Anthropic's built-in web search tool
+		return webSearchResultToFunctionResponse(variant)
+
 	default:
 		// Unknown block type - skip
 		return nil
 	}
+}
+
+// webSearchResultToFunctionResponse converts a WebSearchToolResultBlock to a FunctionResponse Part.
+func webSearchResultToFunctionResponse(block anthropic.WebSearchToolResultBlock) *genai.Part {
+	response := make(map[string]any)
+
+	// Check if it's an error or results
+	if results := block.Content.AsWebSearchResultBlockArray(); len(results) > 0 {
+		searchResults := make([]map[string]any, 0, len(results))
+		for _, result := range results {
+			searchResults = append(searchResults, map[string]any{
+				"title":   result.Title,
+				"url":     result.URL,
+				"pageAge": result.PageAge,
+			})
+		}
+		response["results"] = searchResults
+	} else if errBlock := block.Content.AsResponseWebSearchToolResultError(); errBlock.ErrorCode != "" {
+		response["error"] = string(errBlock.ErrorCode)
+	}
+
+	return &genai.Part{
+		FunctionResponse: &genai.FunctionResponse{
+			ID:       block.ToolUseID,
+			Name:     "web_search",
+			Response: response,
+		},
+	}
+}
+
+// textCitationsToSlice converts Anthropic text citations to a slice of genai.Citation.
+func textCitationsToSlice(citations []anthropic.TextCitationUnion) []*genai.Citation {
+	if len(citations) == 0 {
+		return nil
+	}
+
+	result := make([]*genai.Citation, 0, len(citations))
+	for _, c := range citations {
+		citation := &genai.Citation{
+			Title: c.DocumentTitle,
+		}
+
+		// Map based on citation type
+		switch c.Type {
+		case "char_location":
+			citation.StartIndex = int32(c.StartCharIndex)
+			citation.EndIndex = int32(c.EndCharIndex)
+		case "web_search_result_location":
+			citation.Title = c.Title
+			citation.URI = c.URL
+		case "search_result_location":
+			citation.Title = c.Title
+		}
+
+		result = append(result, citation)
+	}
+
+	return result
 }
 
 // UsageToMetadata converts Anthropic Usage to genai UsageMetadata.
