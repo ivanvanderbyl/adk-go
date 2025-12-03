@@ -18,12 +18,21 @@
 // 1. First agent expands on a topic with detailed information
 // 2. Second agent summarises the expanded content
 //
+// This example supports two backends:
+//
+// 1. Direct Anthropic API (default):
+//   - Set ANTHROPIC_API_KEY to your API key
+//
+// 2. Vertex AI:
+//   - Set ANTHROPIC_USE_VERTEX=true
+//   - Set GOOGLE_CLOUD_PROJECT to your Google Cloud project ID
+//   - Set GOOGLE_CLOUD_LOCATION to the Vertex AI region (e.g., global, us-east5, europe-west1)
+//   - Uses Application Default Credentials (ADC) for authentication:
+//     gcloud auth application-default login
+//
 // Run with:
 //
 //	godotenv go run ./examples/workflowagents/sequential-anthropic
-//
-// Environment variables:
-//   - ANTHROPIC_API_KEY: API key for direct Anthropic API access
 package main
 
 import (
