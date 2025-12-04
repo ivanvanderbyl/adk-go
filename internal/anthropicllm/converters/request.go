@@ -288,6 +288,12 @@ func functionResponseToBlock(resp *genai.FunctionResponse) (*anthropic.ContentBl
 		return nil, nil
 	}
 
+	// The function ID is required for proper tool call correlation.
+	// Without it, Anthropic cannot match tool results to their originating tool calls.
+	if resp.ID == "" {
+		return nil, fmt.Errorf("FunctionResponse.ID is required for tool call correlation (function: %s)", resp.Name)
+	}
+
 	// Convert the response to JSON string
 	var content string
 	if resp.Response != nil {
@@ -298,14 +304,7 @@ func functionResponseToBlock(resp *genai.FunctionResponse) (*anthropic.ContentBl
 		content = string(jsonBytes)
 	}
 
-	// Use the function ID if available, otherwise use the name
-	toolUseID := resp.ID
-	if toolUseID == "" {
-		toolUseID = resp.Name
-	}
-
-	// Use the helper function which constructs the correct structure
-	block := anthropic.NewToolResultBlock(toolUseID, content, false)
+	block := anthropic.NewToolResultBlock(resp.ID, content, false)
 	return &block, nil
 }
 

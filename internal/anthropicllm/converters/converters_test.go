@@ -15,6 +15,7 @@
 package converters_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -311,6 +312,31 @@ func TestFunctionResponseToBlock(t *testing.T) {
 
 	if len(messages[0].Content) != 1 {
 		t.Fatalf("expected 1 content block, got %d", len(messages[0].Content))
+	}
+}
+
+func TestFunctionResponseToBlock_RequiresID(t *testing.T) {
+	// FunctionResponse.ID is required for proper tool call correlation.
+	// Missing ID should return an error, not fall back to Name.
+	content := &genai.Content{
+		Role: "user",
+		Parts: []*genai.Part{
+			{
+				FunctionResponse: &genai.FunctionResponse{
+					Name:     "get_weather",
+					Response: map[string]any{"temperature": 72},
+				},
+			},
+		},
+	}
+
+	_, err := converters.ContentsToMessages([]*genai.Content{content})
+	if err == nil {
+		t.Fatal("expected error for FunctionResponse without ID, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "FunctionResponse.ID is required") {
+		t.Errorf("expected error about missing ID, got: %v", err)
 	}
 }
 
