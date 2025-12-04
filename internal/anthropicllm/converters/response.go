@@ -17,6 +17,7 @@ package converters
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"google.golang.org/genai"
@@ -25,12 +26,9 @@ import (
 )
 
 // MessageToLLMResponse converts an Anthropic Message to a model.LLMResponse.
-func MessageToLLMResponse(msg *anthropic.Message) *model.LLMResponse {
+func MessageToLLMResponse(msg *anthropic.Message) (*model.LLMResponse, error) {
 	if msg == nil {
-		return &model.LLMResponse{
-			ErrorCode:    "UNKNOWN_ERROR",
-			ErrorMessage: "nil message received",
-		}
+		return nil, fmt.Errorf("nil message received")
 	}
 
 	content := &genai.Content{
@@ -40,7 +38,10 @@ func MessageToLLMResponse(msg *anthropic.Message) *model.LLMResponse {
 
 	var allCitations []*genai.Citation
 	for _, block := range msg.Content {
-		part := ContentBlockToGenaiPart(block)
+		part, err := ContentBlockToGenaiPart(block)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert content block: %w", err)
+		}
 		if part != nil {
 			content.Parts = append(content.Parts, part)
 		}
@@ -62,14 +63,14 @@ func MessageToLLMResponse(msg *anthropic.Message) *model.LLMResponse {
 		resp.CitationMetadata = &genai.CitationMetadata{Citations: allCitations}
 	}
 
-	return resp
+	return resp, nil
 }
 
 // ContentBlockToGenaiPart converts an Anthropic ContentBlockUnion to a genai.Part.
-func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) *genai.Part {
+func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) (*genai.Part, error) {
 	switch variant := block.AsAny().(type) {
 	case anthropic.TextBlock:
-		return &genai.Part{Text: variant.Text}
+		return &genai.Part{Text: variant.Text}, nil
 
 	case anthropic.ThinkingBlock:
 		// Map thinking blocks to genai.Part with Thought=true
@@ -78,21 +79,23 @@ func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) *genai.Part {
 			Text:             variant.Thinking,
 			Thought:          true,
 			ThoughtSignature: signature,
-		}
+		}, nil
 
 	case anthropic.RedactedThinkingBlock:
 		// Redacted thinking - we can't see the content but preserve the marker
 		return &genai.Part{
 			Text:    "[thinking redacted]",
 			Thought: true,
-		}
+		}, nil
 
 	case anthropic.ToolUseBlock:
 		// Convert to FunctionCall
 		args := make(map[string]any)
 		if variant.Input != nil {
 			// Input is json.RawMessage, unmarshal it
-			_ = json.Unmarshal(variant.Input, &args)
+			if err := json.Unmarshal(variant.Input, &args); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal tool input for %q (id=%s): %w", variant.Name, variant.ID, err)
+			}
 		}
 		return &genai.Part{
 			FunctionCall: &genai.FunctionCall{
@@ -100,15 +103,19 @@ func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) *genai.Part {
 				Name: variant.Name,
 				Args: args,
 			},
-		}
+		}, nil
 
 	case anthropic.ServerToolUseBlock:
 		// Server-side tool use (web search, etc.)
 		args := make(map[string]any)
 		if variant.Input != nil {
 			// Input is an any type, convert through JSON
-			if inputBytes, err := json.Marshal(variant.Input); err == nil {
-				_ = json.Unmarshal(inputBytes, &args)
+			inputBytes, err := json.Marshal(variant.Input)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal server tool input for %q (id=%s): %w", variant.Name, variant.ID, err)
+			}
+			if err := json.Unmarshal(inputBytes, &args); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal server tool input for %q (id=%s): %w", variant.Name, variant.ID, err)
 			}
 		}
 		return &genai.Part{
@@ -117,15 +124,15 @@ func ContentBlockToGenaiPart(block anthropic.ContentBlockUnion) *genai.Part {
 				Name: string(variant.Name),
 				Args: args,
 			},
-		}
+		}, nil
 
 	case anthropic.WebSearchToolResultBlock:
 		// Web search results from Anthropic's built-in web search tool
-		return webSearchResultToFunctionResponse(variant)
+		return webSearchResultToFunctionResponse(variant), nil
 
 	default:
 		// Unknown block type - skip
-		return nil
+		return nil, nil
 	}
 }
 

@@ -161,7 +161,12 @@ func (m *anthropicModel) generate(ctx context.Context, req *model.LLMRequest) (*
 		return nil, fmt.Errorf("failed to call model: %w", err)
 	}
 
-	return converters.MessageToLLMResponse(msg), nil
+	resp, err := converters.MessageToLLMResponse(msg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert response: %w", err)
+	}
+
+	return resp, nil
 }
 
 // generateStream returns a stream of responses from the model.
@@ -210,7 +215,11 @@ func (m *anthropicModel) generateStream(ctx context.Context, req *model.LLMReque
 		}
 
 		// Yield the final complete response
-		finalResp := converters.MessageToLLMResponse(&message)
+		finalResp, err := converters.MessageToLLMResponse(&message)
+		if err != nil {
+			yield(nil, fmt.Errorf("failed to convert stream response: %w", err))
+			return
+		}
 		finalResp.TurnComplete = true
 		yield(finalResp, nil)
 	}

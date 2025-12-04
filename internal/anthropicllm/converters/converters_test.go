@@ -142,29 +142,37 @@ func TestSystemInstructionToSystem(t *testing.T) {
 func TestStopReasonToFinishReason(t *testing.T) {
 	tests := []struct {
 		name string
-		stop string
+		stop anthropic.StopReason
 		want genai.FinishReason
 	}{
-		{"end_turn", "end_turn", genai.FinishReasonStop},
-		{"max_tokens", "max_tokens", genai.FinishReasonMaxTokens},
-		{"stop_sequence", "stop_sequence", genai.FinishReasonStop},
-		{"tool_use", "tool_use", genai.FinishReasonStop},
-		{"unknown", "unknown", genai.FinishReasonUnspecified},
+		{"end_turn", anthropic.StopReasonEndTurn, genai.FinishReasonStop},
+		{"max_tokens", anthropic.StopReasonMaxTokens, genai.FinishReasonMaxTokens},
+		{"stop_sequence", anthropic.StopReasonStopSequence, genai.FinishReasonStop},
+		{"tool_use", anthropic.StopReasonToolUse, genai.FinishReasonStop},
+		{"unknown", anthropic.StopReason("unknown"), genai.FinishReasonUnspecified},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Import anthropic to use actual StopReason values
-			// For now, test is more of a documentation of expected behaviour
+			got := converters.StopReasonToFinishReason(tt.stop)
+			if got != tt.want {
+				t.Errorf("StopReasonToFinishReason(%q) = %v, want %v", tt.stop, got, tt.want)
+			}
 		})
 	}
-
-	_ = tests // Suppress unused warning
 }
 
 func TestUsageToMetadata(t *testing.T) {
-	// This test verifies the usage conversion produces correct token counts
-	// The actual test would require creating anthropic.Usage which is a struct
+	usage := anthropic.Usage{InputTokens: 10, OutputTokens: 20}
+	want := &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:     10,
+		CandidatesTokenCount: 20,
+		TotalTokenCount:      30,
+	}
+	got := converters.UsageToMetadata(usage)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("UsageToMetadata() mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func TestToolsToAnthropicTools(t *testing.T) {
@@ -417,10 +425,6 @@ func TestToolCallAndResult_Correlation(t *testing.T) {
 			t.Errorf("message %d: expected role %q, got %q", i, expectedRoles[i], msg.Role)
 		}
 	}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
 
 // cmpOpts provides comparison options for testing
@@ -757,7 +761,10 @@ func TestMessageToLLMResponse_WithCitations(t *testing.T) {
 		t.Fatalf("failed to unmarshal message: %v", err)
 	}
 
-	resp := converters.MessageToLLMResponse(&msg)
+	resp, err := converters.MessageToLLMResponse(&msg)
+	if err != nil {
+		t.Fatalf("MessageToLLMResponse() error = %v", err)
+	}
 
 	if resp.CitationMetadata == nil {
 		t.Fatal("expected CitationMetadata to be set")
@@ -811,7 +818,10 @@ func TestContentBlockToGenaiPart_WebSearchToolResult(t *testing.T) {
 		t.Fatalf("failed to unmarshal block: %v", err)
 	}
 
-	part := converters.ContentBlockToGenaiPart(block)
+	part, err := converters.ContentBlockToGenaiPart(block)
+	if err != nil {
+		t.Fatalf("ContentBlockToGenaiPart() error = %v", err)
+	}
 
 	if part == nil {
 		t.Fatal("expected part to be non-nil")
