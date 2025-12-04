@@ -15,25 +15,14 @@
 package anthropic
 
 import (
-	"context"
-	"os"
 	"testing"
 )
 
 func TestNewModel_DirectAPI(t *testing.T) {
-	// Save current env and restore after test
-	origAPIKey := os.Getenv("ANTHROPIC_API_KEY")
-	origUseVertex := os.Getenv("ANTHROPIC_USE_VERTEX")
-	defer func() {
-		os.Setenv("ANTHROPIC_API_KEY", origAPIKey)
-		os.Setenv("ANTHROPIC_USE_VERTEX", origUseVertex)
-	}()
+	t.Setenv("ANTHROPIC_API_KEY", "test-api-key")
+	t.Setenv("ANTHROPIC_USE_VERTEX", "false")
 
-	os.Setenv("ANTHROPIC_API_KEY", "test-api-key")
-	os.Setenv("ANTHROPIC_USE_VERTEX", "false")
-
-	ctx := context.Background()
-	model, err := NewModel(ctx, "claude-sonnet-4-20250514", nil)
+	model, err := NewModel(t.Context(), "claude-sonnet-4-20250514", nil)
 	if err != nil {
 		t.Fatalf("NewModel() error = %v", err)
 	}
@@ -44,14 +33,13 @@ func TestNewModel_DirectAPI(t *testing.T) {
 }
 
 func TestNewModel_WithConfig(t *testing.T) {
-	ctx := context.Background()
 	cfg := &Config{
 		APIKey:           "test-api-key",
 		DefaultMaxTokens: 2048,
 		Variant:          VariantAnthropicAPI,
 	}
 
-	model, err := NewModel(ctx, "claude-sonnet-4-20250514", cfg)
+	model, err := NewModel(t.Context(), "claude-sonnet-4-20250514", cfg)
 	if err != nil {
 		t.Fatalf("NewModel() error = %v", err)
 	}
@@ -71,59 +59,40 @@ func TestNewModel_WithConfig(t *testing.T) {
 }
 
 func TestNewModel_VertexAI_MissingProject(t *testing.T) {
-	// Save current env and restore after test
-	origProject := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	origRegion := os.Getenv("GOOGLE_CLOUD_REGION")
-	defer func() {
-		os.Setenv("GOOGLE_CLOUD_PROJECT", origProject)
-		os.Setenv("GOOGLE_CLOUD_REGION", origRegion)
-	}()
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+	t.Setenv("GOOGLE_CLOUD_REGION", "us-central1")
 
-	os.Setenv("GOOGLE_CLOUD_PROJECT", "")
-	os.Setenv("GOOGLE_CLOUD_REGION", "us-central1")
-
-	ctx := context.Background()
 	cfg := &Config{
 		Variant: VariantVertexAI,
 	}
 
-	_, err := NewModel(ctx, "claude-sonnet-4-20250514", cfg)
+	_, err := NewModel(t.Context(), "claude-sonnet-4-20250514", cfg)
 	if err == nil {
 		t.Fatal("NewModel() expected error for missing project ID")
 	}
 }
 
 func TestNewModel_VertexAI_MissingRegion(t *testing.T) {
-	// Save current env and restore after test
-	origProject := os.Getenv("GOOGLE_CLOUD_PROJECT")
-	origRegion := os.Getenv("GOOGLE_CLOUD_REGION")
-	defer func() {
-		os.Setenv("GOOGLE_CLOUD_PROJECT", origProject)
-		os.Setenv("GOOGLE_CLOUD_REGION", origRegion)
-	}()
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("GOOGLE_CLOUD_REGION", "")
 
-	os.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	os.Setenv("GOOGLE_CLOUD_REGION", "")
-
-	ctx := context.Background()
 	cfg := &Config{
 		Variant: VariantVertexAI,
 	}
 
-	_, err := NewModel(ctx, "claude-sonnet-4-20250514", cfg)
+	_, err := NewModel(t.Context(), "claude-sonnet-4-20250514", cfg)
 	if err == nil {
 		t.Fatal("NewModel() expected error for missing region")
 	}
 }
 
 func TestNewModel_DefaultMaxTokens(t *testing.T) {
-	ctx := context.Background()
 	cfg := &Config{
 		APIKey:  "test-api-key",
 		Variant: VariantAnthropicAPI,
 	}
 
-	model, err := NewModel(ctx, "claude-sonnet-4-20250514", cfg)
+	model, err := NewModel(t.Context(), "claude-sonnet-4-20250514", cfg)
 	if err != nil {
 		t.Fatalf("NewModel() error = %v", err)
 	}
@@ -151,10 +120,7 @@ func TestGetVariant(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			origValue := os.Getenv("ANTHROPIC_USE_VERTEX")
-			defer os.Setenv("ANTHROPIC_USE_VERTEX", origValue)
-
-			os.Setenv("ANTHROPIC_USE_VERTEX", tt.envValue)
+			t.Setenv("ANTHROPIC_USE_VERTEX", tt.envValue)
 
 			got := GetVariant()
 			if got != tt.want {
