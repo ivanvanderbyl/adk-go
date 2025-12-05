@@ -204,7 +204,7 @@ func NewLauncher(sublaunchers ...Sublauncher) launcher.SubLauncher {
 
 	fs := flag.NewFlagSet("web", flag.ContinueOnError)
 	fs.IntVar(&config.port, "port", 8080, "Localhost port for the server")
-	fs.DurationVar(&config.writeTimeout, "write-timeout", 15*time.Second, "Server write timeout (i.e. '10s', '2m' - see time.ParseDuration for details) - for writing the response after reading the headers & body")
+	fs.DurationVar(&config.writeTimeout, "write-timeout", 5*time.Minute, "Server write timeout (i.e. '10s', '2m' - see time.ParseDuration for details) - for writing the response after reading the headers & body")
 	fs.DurationVar(&config.readTimeout, "read-timeout", 15*time.Second, "Server read timeout (i.e. '10s', '2m' - see time.ParseDuration for details) - for reading the whole request including body")
 	fs.DurationVar(&config.idleTimeout, "idle-timeout", 60*time.Second, "Server idle timeout (i.e. '10s', '2m' - see time.ParseDuration for details) - for waiting for the next request (only when keep-alive is enabled)")
 
