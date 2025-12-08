@@ -315,10 +315,19 @@ func functionCallToBlock(call *genai.FunctionCall) (*anthropic.ContentBlockParam
 		return nil, nil
 	}
 
-	// Convert args to any type for the input
-	var input any = call.Args
-	if input == nil {
-		input = map[string]any{}
+	// Ensure input is a proper map[string]any for the Anthropic API.
+	// After JSON serialization/deserialization (e.g., from session storage),
+	// the Args type may not be exactly map[string]any, causing API errors.
+	input := make(map[string]any)
+	if call.Args != nil {
+		// Round-trip through JSON to normalize the type
+		data, err := json.Marshal(call.Args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal function call args for %q: %w", call.Name, err)
+		}
+		if err := json.Unmarshal(data, &input); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal function call args for %q: %w", call.Name, err)
+		}
 	}
 
 	block := anthropic.NewToolUseBlock(call.ID, input, call.Name)
