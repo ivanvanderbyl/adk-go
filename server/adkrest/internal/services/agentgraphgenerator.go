@@ -138,13 +138,26 @@ func edgeHighlighted(from, to string, higlightedPairs [][]string) *bool {
 	return nil
 }
 
-func drawCluster(parentGraph, cluster *gographviz.Graph, agent agent.Agent, highlightedPairs [][]string, visitedNodes map[string]bool) error {
+// graphNodeName returns the name to use when referencing a node in edges.
+// For cluster agents, we need to use a node inside the cluster, not the cluster itself.
+func graphNodeName(instance any) string {
+	name := nodeName(instance)
+	if shouldBuildAgentCluster(instance) {
+		// For clusters, we need to find a node inside the cluster to connect to.
+		if a, ok := instance.(agent.Agent); ok && len(a.SubAgents()) > 0 {
+			return graphNodeName(a.SubAgents()[0])
+		}
+	}
+	return name
+}
+
+func drawCluster(rootGraph *gographviz.Graph, cluster *gographviz.Graph, agent agent.Agent, highlightedPairs [][]string, visitedNodes map[string]bool) error {
 	agentInternal, ok := agent.(agentinternal.Agent)
 	if !ok {
 		return nil
 	}
 	for i, subAgent := range agent.SubAgents() {
-		err := buildGraph(cluster, parentGraph, subAgent, highlightedPairs, visitedNodes)
+		err := buildGraph(rootGraph, cluster, subAgent, highlightedPairs, visitedNodes)
 		if err != nil {
 			return fmt.Errorf("draw cluster: build graph: %w", err)
 		}
@@ -152,7 +165,7 @@ func drawCluster(parentGraph, cluster *gographviz.Graph, agent agent.Agent, high
 		// Sequential sub-agents should be connected one after another with edges.
 		case agentinternal.TypeSequentialAgent:
 			if i < len(agent.SubAgents())-1 {
-				err = drawEdge(parentGraph, nodeName(subAgent), nodeName(agent.SubAgents()[i+1]), highlightedPairs)
+				err = drawEdge(rootGraph, graphNodeName(subAgent), graphNodeName(agent.SubAgents()[i+1]), highlightedPairs)
 				if err != nil {
 					return fmt.Errorf("draw cluster: draw edge: %w", err)
 				}
@@ -163,7 +176,7 @@ func drawCluster(parentGraph, cluster *gographviz.Graph, agent agent.Agent, high
 			if nextAgentIdx >= len(agent.SubAgents()) {
 				nextAgentIdx = 0
 			}
-			err = drawEdge(parentGraph, nodeName(subAgent), nodeName(agent.SubAgents()[nextAgentIdx]), highlightedPairs)
+			err = drawEdge(rootGraph, graphNodeName(subAgent), graphNodeName(agent.SubAgents()[nextAgentIdx]), highlightedPairs)
 			if err != nil {
 				return fmt.Errorf("draw cluster: draw edge: %w", err)
 			}
@@ -173,7 +186,7 @@ func drawCluster(parentGraph, cluster *gographviz.Graph, agent agent.Agent, high
 	return nil
 }
 
-func drawNode(graph, parentGraph *gographviz.Graph, instance any, highlightedPairs [][]string, visitedNodes map[string]bool) error {
+func drawNode(rootGraph *gographviz.Graph, currentCluster *gographviz.Graph, instance any, highlightedPairs [][]string, visitedNodes map[string]bool) error {
 	name := nodeName(instance)
 	shape := nodeShape(instance)
 	caption := nodeCaption(instance)
@@ -191,7 +204,8 @@ func drawNode(graph, parentGraph *gographviz.Graph, instance any, highlightedPai
 		if err != nil {
 			return fmt.Errorf("set cluster name: %w", err)
 		}
-		err = graph.AddSubGraph(graph.Name, cluster.Name, map[string]string{
+		// Add subgraph to the current cluster (or root if at top level)
+		err = rootGraph.AddSubGraph(currentCluster.Name, cluster.Name, map[string]string{
 			"style":     "rounded",
 			"color":     White,
 			"label":     caption,
@@ -200,7 +214,7 @@ func drawNode(graph, parentGraph *gographviz.Graph, instance any, highlightedPai
 		if err != nil {
 			return fmt.Errorf("add cluster: %w", err)
 		}
-		return drawCluster(graph, cluster, agent, highlightedPairs, visitedNodes)
+		return drawCluster(rootGraph, cluster, agent, highlightedPairs, visitedNodes)
 	} else {
 		nodeAttributes := map[string]string{
 			"label":     caption,
@@ -215,7 +229,8 @@ func drawNode(graph, parentGraph *gographviz.Graph, instance any, highlightedPai
 			nodeAttributes["color"] = LightGray
 			nodeAttributes["style"] = "rounded"
 		}
-		return parentGraph.AddNode(graph.Name, name, nodeAttributes)
+		// Add node to root graph but associate with current cluster
+		return rootGraph.AddNode(currentCluster.Name, name, nodeAttributes)
 	}
 }
 
@@ -237,7 +252,7 @@ func drawEdge(graph *gographviz.Graph, from, to string, highlightedPairs [][]str
 	return graph.AddEdge(from, to, true, edgeAttributes)
 }
 
-func buildGraph(graph, parentGraph *gographviz.Graph, instance any, highlightedPairs [][]string, visitedNodes map[string]bool) error {
+func buildGraph(rootGraph *gographviz.Graph, currentCluster *gographviz.Graph, instance any, highlightedPairs [][]string, visitedNodes map[string]bool) error {
 	namedInstance, ok := instance.(namedInstance)
 	if !ok {
 		return nil
@@ -246,7 +261,7 @@ func buildGraph(graph, parentGraph *gographviz.Graph, instance any, highlightedP
 		return nil
 	}
 
-	err := drawNode(graph, parentGraph, instance, highlightedPairs, visitedNodes)
+	err := drawNode(rootGraph, currentCluster, instance, highlightedPairs, visitedNodes)
 	if err != nil {
 		return fmt.Errorf("draw node: %w", err)
 	}
@@ -258,18 +273,18 @@ func buildGraph(graph, parentGraph *gographviz.Graph, instance any, highlightedP
 	if ok {
 		tools := llmagentinternal.Reveal(llmAgent).Tools
 		for _, tool := range tools {
-			err = drawNode(graph, parentGraph, tool, highlightedPairs, visitedNodes)
+			err = drawNode(rootGraph, currentCluster, tool, highlightedPairs, visitedNodes)
 			if err != nil {
 				return fmt.Errorf("draw tool node: %w", err)
 			}
-			err = drawEdge(graph, nodeName(agent), nodeName(tool), highlightedPairs)
+			err = drawEdge(rootGraph, nodeName(agent), nodeName(tool), highlightedPairs)
 			if err != nil {
 				return fmt.Errorf("draw tool edge: %w", err)
 			}
 		}
 	}
 	for _, subAgent := range agent.SubAgents() {
-		err = buildGraph(graph, parentGraph, subAgent, highlightedPairs, visitedNodes)
+		err = buildGraph(rootGraph, currentCluster, subAgent, highlightedPairs, visitedNodes)
 		if err != nil {
 			return fmt.Errorf("build sub agent graph: %w", err)
 		}
